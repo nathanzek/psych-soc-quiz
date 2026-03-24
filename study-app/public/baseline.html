@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MMLU Study — No AI Assistance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app-shell">
+  <header>
+    <span class="logo">CSE 594 · Human-AI Study</span>
+    <span class="condition-badge baseline">No AI Assistance</span>
+  </header>
+
+  <main>
+    <!-- Onboarding screen -->
+    <div id="screen-onboarding" class="onboarding">
+      <h1>Multiple Choice Study</h1>
+      <p>You'll answer <strong>10 questions</strong> from sociology and psychology. Answer each question based on your own knowledge — no AI assistance is provided in this condition.</p>
+
+      <div class="worker-id-display" id="worker-id-display">Loading…</div>
+      <p style="font-size:0.8rem; color: var(--muted);">📋 Copy your Worker ID above — you'll need it to submit on MTurk.</p>
+
+      <div class="instructions">
+        <h3>Instructions</h3>
+        <ol>
+          <li>Read each question carefully.</li>
+          <li>Select the answer you believe is correct (A, B, C, or D).</li>
+          <li>Rate your confidence (1 = guessing, 5 = very sure).</li>
+          <li>Click <strong>Next Question</strong> to proceed.</li>
+          <li>At the end, copy your completion code for MTurk.</li>
+        </ol>
+      </div>
+
+      <button class="btn-primary" id="btn-start">Start Study →</button>
+    </div>
+
+    <!-- Trial screen -->
+    <div id="screen-trial" class="hidden">
+      <div class="progress-wrap">
+        <div class="progress-meta">
+          <span id="progress-label">Question 1 of 10</span>
+          <span id="worker-id-small" style="font-family:var(--font-mono); font-size:0.75rem; color:var(--muted);"></span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="progress-fill" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <span class="subject-tag" id="subject-tag"></span>
+        <p class="question-text" id="question-text"></p>
+        <div class="choices" id="choices-container"></div>
+
+        <!-- Confidence -->
+        <div class="confidence-section">
+          <div class="confidence-label">How confident are you in your answer?</div>
+          <div class="confidence-scale" id="confidence-scale">
+            <button class="conf-btn" data-val="1">1</button>
+            <button class="conf-btn" data-val="2">2</button>
+            <button class="conf-btn" data-val="3">3</button>
+            <button class="conf-btn" data-val="4">4</button>
+            <button class="conf-btn" data-val="5">5</button>
+          </div>
+          <div class="conf-labels"><span>Just guessing</span><span>Very sure</span></div>
+        </div>
+      </div>
+
+      <div class="submit-row">
+        <button class="btn-primary" id="btn-next" disabled>Next Question →</button>
+      </div>
+    </div>
+
+    <!-- Completion screen -->
+    <div id="screen-complete" class="hidden completion">
+      <div class="big-check">✅</div>
+      <h2>Study Complete!</h2>
+      <p>Thank you for participating. Here is a summary of your session:</p>
+      <div class="stats-row">
+        <div class="stat-chip"><strong id="stat-correct">—</strong>Correct</div>
+        <div class="stat-chip"><strong id="stat-score">—</strong>Accuracy</div>
+        <div class="stat-chip"><strong id="stat-time">—</strong>Total Time</div>
+      </div>
+      <p style="margin-top:1rem; font-size:0.88rem;">Enter this code on MTurk to complete your submission:</p>
+      <div class="completion-code" id="completion-code">—</div>
+      <p class="completion-note">Worker ID: <span id="completion-worker-id" style="font-family:var(--font-mono);"></span></p>
+    </div>
+  </main>
+
+  <footer>CSE 594 · Assignment 3 · No-AI Condition · University of Michigan</footer>
+</div>
+
+<script src="utils.js"></script>
+<script>
+(async () => {
+  const CONDITION = 'baseline';
+  let workerId = '';
+  let allTrials = [];
+  let sessionTrials = [];
+  let currentIdx = 0;
+  let selectedAnswer = null;
+  let selectedConfidence = null;
+  let trialStartTime = null;
+  let sessionStartTime = null;
+  let correctCount = 0;
+
+  // ── Init ──────────────────────────────────────────────────
+  workerId = await getOrCreateWorkerId();
+  document.getElementById('worker-id-display').textContent = workerId;
+  document.getElementById('worker-id-small').textContent = workerId;
+  allTrials = await loadTrials();
+
+  // ── Start ─────────────────────────────────────────────────
+  document.getElementById('btn-start').addEventListener('click', () => {
+    const seed = hashCode(workerId + CONDITION);
+    sessionTrials = sampleTrials(allTrials, TRIALS_PER_SESSION, seed);
+    sessionStartTime = Date.now();
+    show('screen-trial');
+    renderTrial();
+  });
+
+  // ── Render trial ──────────────────────────────────────────
+  function renderTrial() {
+    const trial = sessionTrials[currentIdx];
+    selectedAnswer = null;
+    selectedConfidence = null;
+    trialStartTime = Date.now();
+
+    // Progress
+    const pct = (currentIdx / TRIALS_PER_SESSION) * 100;
+    document.getElementById('progress-fill').style.width = pct + '%';
+    document.getElementById('progress-label').textContent =
+      `Question ${currentIdx + 1} of ${TRIALS_PER_SESSION}`;
+
+    // Subject
+    const tag = document.getElementById('subject-tag');
+    tag.textContent = trial.subject.replace('professional_', '');
+    tag.className = 'subject-tag ' + (trial.subject.includes('soc') ? 'sociology' : 'psychology');
+
+    // Question
+    document.getElementById('question-text').textContent = trial.question;
+
+    // Choices
+    const container = document.getElementById('choices-container');
+    container.innerHTML = '';
+    ['A','B','C','D'].forEach(letter => {
+      const btn = document.createElement('button');
+      btn.className = 'choice-btn';
+      btn.dataset.letter = letter;
+      btn.innerHTML = `<span class="choice-key">${letter}</span><span>${trial.choices[letter]}</span>`;
+      btn.addEventListener('click', () => selectAnswer(letter));
+      container.appendChild(btn);
+    });
+
+    // Confidence
+    document.querySelectorAll('.conf-btn').forEach(b => {
+      b.classList.remove('selected');
+      b.onclick = () => selectConfidence(parseInt(b.dataset.val));
+    });
+
+    updateNextBtn();
+  }
+
+  function selectAnswer(letter) {
+    selectedAnswer = letter;
+    document.querySelectorAll('.choice-btn').forEach(b => {
+      b.classList.toggle('selected', b.dataset.letter === letter);
+    });
+    updateNextBtn();
+  }
+
+  function selectConfidence(val) {
+    selectedConfidence = val;
+    document.querySelectorAll('.conf-btn').forEach(b => {
+      b.classList.toggle('selected', parseInt(b.dataset.val) === val);
+    });
+    updateNextBtn();
+  }
+
+  function updateNextBtn() {
+    const ready = selectedAnswer !== null && selectedConfidence !== null;
+    document.getElementById('btn-next').disabled = !ready;
+    const isLast = currentIdx === TRIALS_PER_SESSION - 1;
+    document.getElementById('btn-next').textContent = isLast ? 'Finish Study ✓' : 'Next Question →';
+  }
+
+  // ── Next ──────────────────────────────────────────────────
+  document.getElementById('btn-next').addEventListener('click', async () => {
+    const trial = sessionTrials[currentIdx];
+    const timeSpentMs = Date.now() - trialStartTime;
+    const isCorrect = selectedAnswer === trial.ground_truth;
+    if (isCorrect) correctCount++;
+
+    const btn = document.getElementById('btn-next');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+
+    await submitResponse({
+      workerId,
+      condition: CONDITION,
+      trialId: currentIdx,
+      questionId: trial.id,
+      subject: trial.subject,
+      humanAnswer: selectedAnswer,
+      groundTruth: trial.ground_truth,
+      isCorrect,
+      confidenceRating: selectedConfidence,
+      timeSpentMs,
+      aiShown: false,
+      aiAnswer: null,
+      aiWasHelpful: null
+    });
+
+    currentIdx++;
+    if (currentIdx >= TRIALS_PER_SESSION) {
+      await finishSession();
+    } else {
+      renderTrial();
+    }
+  });
+
+  // ── Finish ────────────────────────────────────────────────
+  async function finishSession() {
+    const totalTimeMs = Date.now() - sessionStartTime;
+    await submitSession(workerId, totalTimeMs);
+
+    document.getElementById('stat-correct').textContent = `${correctCount}/${TRIALS_PER_SESSION}`;
+    document.getElementById('stat-score').textContent = Math.round((correctCount/TRIALS_PER_SESSION)*100) + '%';
+    document.getElementById('stat-time').textContent = formatTime(totalTimeMs);
+    document.getElementById('completion-code').textContent = generateCompletionCode(workerId, CONDITION);
+    document.getElementById('completion-worker-id').textContent = workerId;
+    show('screen-complete');
+  }
+
+  // ── Utils ─────────────────────────────────────────────────
+  function show(id) {
+    ['screen-onboarding','screen-trial','screen-complete'].forEach(s => {
+      document.getElementById(s).classList.toggle('hidden', s !== id);
+    });
+  }
+})();
+</script>
+</body>
+</html>

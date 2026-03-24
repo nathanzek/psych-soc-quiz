@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Study Admin — CSE 594</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .admin-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+    .metric { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.1rem 1.25rem; }
+    .metric-val { font-size: 2rem; font-weight: 700; color: var(--accent); font-family: var(--font-mono); }
+    .metric-label { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; margin-top: 0.2rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    th { text-align: left; padding: 0.6rem 0.75rem; background: var(--surface2); color: var(--muted); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; border-bottom: 1px solid var(--border); }
+    td { padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--border); color: var(--text); }
+    tr:hover td { background: var(--surface2); }
+    .tag { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 5px; font-size: 0.7rem; font-weight: 700; }
+    .tag-ai { background: #1a2a50; color: var(--accent); }
+    .tag-base { background: var(--surface2); color: var(--muted); }
+    .tag-correct { background: #0f2a1e; color: var(--success); }
+    .tag-wrong { background: #2a0f0f; color: var(--danger); }
+    .section-title { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 2rem 0 0.75rem; }
+    .btn-row { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; }
+    .btn-sm { padding: 0.5rem 1.1rem; border-radius: 8px; border: 1.5px solid var(--accent); background: transparent; color: var(--accent); font-family: var(--font-body); font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+    .btn-sm:hover { background: var(--accent); color: #fff; }
+    .empty { color: var(--muted); text-align: center; padding: 2rem; }
+    .acc-compare { display: flex; gap: 1.5rem; align-items: flex-end; margin: 0.5rem 0 1.5rem; }
+    .bar-wrap { flex: 1; }
+    .bar-label { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .bar-track { height: 28px; background: var(--surface2); border-radius: 8px; overflow: hidden; position: relative; }
+    .bar-fill { height: 100%; border-radius: 8px; display: flex; align-items: center; padding: 0 0.75rem; font-size: 0.8rem; font-weight: 700; transition: width 0.6s cubic-bezier(0.4,0,0.2,1); }
+    .bar-fill.base { background: linear-gradient(90deg, #3a4060, #4a5080); color: #aab; }
+    .bar-fill.ai   { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #fff; }
+  </style>
+</head>
+<body>
+<div class="app-shell">
+  <header>
+    <span class="logo">CSE 594 · Admin Dashboard</span>
+    <span class="condition-badge" style="color:var(--warn); border-color:var(--warn);">Admin View</span>
+  </header>
+  <main>
+    <div class="btn-row">
+      <button class="btn-sm" onclick="loadData()">↻ Refresh</button>
+      <a class="btn-sm" href="/api/admin/csv" download>⬇ Download CSV</a>
+    </div>
+
+    <div class="admin-grid">
+      <div class="metric"><div class="metric-val" id="m-total">—</div><div class="metric-label">Total Responses</div></div>
+      <div class="metric"><div class="metric-val" id="m-workers">—</div><div class="metric-label">Unique Workers</div></div>
+      <div class="metric"><div class="metric-val" id="m-base-sessions">—</div><div class="metric-label">Baseline Sessions</div></div>
+      <div class="metric"><div class="metric-val" id="m-ai-sessions">—</div><div class="metric-label">AI Sessions</div></div>
+      <div class="metric"><div class="metric-val" id="m-base-acc">—</div><div class="metric-label">Baseline Accuracy</div></div>
+      <div class="metric"><div class="metric-val" id="m-ai-acc">—</div><div class="metric-label">AI Accuracy</div></div>
+    </div>
+
+    <div class="section-title">Accuracy Comparison</div>
+    <div class="acc-compare">
+      <div class="bar-wrap">
+        <div class="bar-label">Baseline (No AI)</div>
+        <div class="bar-track"><div class="bar-fill base" id="bar-base" style="width:0%">—</div></div>
+      </div>
+      <div class="bar-wrap">
+        <div class="bar-label">AI-Assisted</div>
+        <div class="bar-track"><div class="bar-fill ai" id="bar-ai" style="width:0%">—</div></div>
+      </div>
+    </div>
+
+    <div class="section-title">Recent Responses</div>
+    <div id="table-wrap">
+      <div class="empty">Loading…</div>
+    </div>
+  </main>
+  <footer>CSE 594 · Assignment 3 · Admin Panel</footer>
+</div>
+
+<script>
+async function loadData() {
+  const res = await fetch('/api/admin/data');
+  const data = await res.json();
+
+  document.getElementById('m-total').textContent = data.length;
+  const workers = new Set(data.map(r => r.workerId));
+  document.getElementById('m-workers').textContent = workers.size;
+
+  const base = data.filter(r => r.condition === 'baseline');
+  const ai   = data.filter(r => r.condition === 'ai');
+
+  // Sessions = unique workers per condition
+  const baseSessions = new Set(base.map(r => r.workerId)).size;
+  const aiSessions   = new Set(ai.map(r => r.workerId)).size;
+  document.getElementById('m-base-sessions').textContent = baseSessions;
+  document.getElementById('m-ai-sessions').textContent   = aiSessions;
+
+  const baseAcc = base.length ? (base.filter(r => r.isCorrect).length / base.length) : null;
+  const aiAcc   = ai.length   ? (ai.filter(r => r.isCorrect).length   / ai.length)   : null;
+
+  const fmt = v => v !== null ? Math.round(v * 100) + '%' : '—';
+  document.getElementById('m-base-acc').textContent = fmt(baseAcc);
+  document.getElementById('m-ai-acc').textContent   = fmt(aiAcc);
+
+  // Bars
+  const bBase = document.getElementById('bar-base');
+  const bAi   = document.getElementById('bar-ai');
+  bBase.style.width = baseAcc !== null ? (baseAcc * 100) + '%' : '0%';
+  bBase.textContent = fmt(baseAcc);
+  bAi.style.width   = aiAcc !== null   ? (aiAcc * 100)   + '%' : '0%';
+  bAi.textContent   = fmt(aiAcc);
+
+  // Table (most recent 50)
+  const recent = [...data].reverse().slice(0, 50);
+  if (recent.length === 0) {
+    document.getElementById('table-wrap').innerHTML = '<div class="empty">No responses yet.</div>';
+    return;
+  }
+
+  const cols = ['timestamp','workerId','condition','trialId','subject','humanAnswer','groundTruth','isCorrect','confidenceRating','timeSpentMs','aiShown','aiWasHelpful'];
+  let html = '<div style="overflow-x:auto"><table><thead><tr>' +
+    cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+
+  for (const r of recent) {
+    html += '<tr>';
+    for (const c of cols) {
+      let v = r[c] ?? '—';
+      if (c === 'condition') v = `<span class="tag ${v === 'ai' ? 'tag-ai' : 'tag-base'}">${v}</span>`;
+      if (c === 'isCorrect') v = `<span class="tag ${v === 1 ? 'tag-correct' : 'tag-wrong'}">${v === 1 ? '✓' : '✗'}</span>`;
+      if (c === 'timestamp') v = new Date(v).toLocaleString();
+      if (c === 'timeSpentMs' && typeof r[c] === 'number') v = (r[c]/1000).toFixed(1) + 's';
+      html += `<td>${v}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+  document.getElementById('table-wrap').innerHTML = html;
+}
+
+loadData();
+setInterval(loadData, 15000); // auto-refresh every 15s
+</script>
+</body>
+</html>
